@@ -1,0 +1,16 @@
+[
+  {
+    "id": "adcbc995-513e-43f9-a8e9-d8a1822086fb",
+    "name": "UCTF 2026",
+    "slug": "uctf-2026",
+    "description": "Writeups from UCTF 2026",
+    "createdAt": "2026-03-23T07:59:25.556Z"
+  },
+  {
+    "id": "cfba639f-7943-461b-8de8-a37ce45f62ee",
+    "name": "TamuCTF2026",
+    "slug": "tamuctf2026",
+    "description": "Writeups from UCTF 2026",
+    "createdAt": "2026-03-24T03:55:51.698Z"
+  }
+]
