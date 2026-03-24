@@ -4,6 +4,7 @@ const session = require('express-session');
 const multer = require('multer');
 const { marked } = require('marked');
 const { v4: uuidv4 } = require('uuid');
+const mongoose = require('mongoose');
 const fs = require('fs');
 const path = require('path');
 
@@ -13,17 +14,37 @@ const ADMIN_USER = process.env.ADMIN_USERNAME || 'admin';
 const ADMIN_PASS = process.env.ADMIN_PASSWORD || 'admin123';
 const SESSION_SECRET = process.env.SESSION_SECRET || 'change-this-secret';
 const CF_SECRET = process.env.CF_TURNSTILE_SECRET_KEY || '';
+const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/blog';
 
-const DATA_DIR = path.join(__dirname, 'data');
-const POSTS_FILE = path.join(DATA_DIR, 'posts.json');
-const FOLDERS_FILE = path.join(DATA_DIR, 'folders.json');
 const UPLOADS_DIR = path.join(__dirname, 'uploads');
+if (!fs.existsSync(UPLOADS_DIR)) fs.mkdirSync(UPLOADS_DIR, { recursive: true });
 
-[DATA_DIR, UPLOADS_DIR].forEach(d => {
-  if (!fs.existsSync(d)) fs.mkdirSync(d, { recursive: true });
+// ── MongoDB Models ──
+const folderSchema = new mongoose.Schema({
+  id:          { type: String, required: true, unique: true },
+  name:        { type: String, required: true },
+  slug:        { type: String, required: true },
+  description: { type: String, default: '' },
+  createdAt:   { type: Date, default: Date.now },
 });
-if (!fs.existsSync(POSTS_FILE)) fs.writeFileSync(POSTS_FILE, '[]');
-if (!fs.existsSync(FOLDERS_FILE)) fs.writeFileSync(FOLDERS_FILE, '[]');
+folderSchema.index({ slug: 1 });
+const Folder = mongoose.model('Folder', folderSchema);
+
+const postSchema = new mongoose.Schema({
+  id:          { type: String, required: true, unique: true },
+  folderId:    { type: String, required: true },
+  slug:        { type: String, required: true },
+  title:       { type: String, required: true },
+  description: { type: String, default: '' },
+  tags:        { type: [String], default: [] },
+  content:     { type: String, default: '' },
+  readTime:    { type: Number, default: 1 },
+  createdAt:   { type: Date, default: Date.now },
+  updatedAt:   { type: Date, default: Date.now },
+});
+postSchema.index({ slug: 1 });
+postSchema.index({ folderId: 1 });
+const Post = mongoose.model('Post', postSchema);
 
 marked.setOptions({ breaks: true, gfm: true });
 
@@ -58,17 +79,7 @@ const upload = multer({
   limits: { fileSize: 10 * 1024 * 1024 },
 });
 
-function readJSON(file) {
-  try { return JSON.parse(fs.readFileSync(file, 'utf-8')); }
-  catch { return []; }
-}
-function writeJSON(file, data) {
-  fs.writeFileSync(file, JSON.stringify(data, null, 2), 'utf-8');
-}
-function readPosts() { return readJSON(POSTS_FILE); }
-function writePosts(p) { writeJSON(POSTS_FILE, p); }
-function readFolders() { return readJSON(FOLDERS_FILE); }
-function writeFolders(f) { writeJSON(FOLDERS_FILE, f); }
+// (file helpers removed — using MongoDB now)
 
 function extractTitle(md) {
   for (const line of md.split('\n')) {
@@ -152,97 +163,99 @@ app.get('/api/auth/check', (req, res) => {
   res.json({ isAdmin: !!(req.session && req.session.isAdmin) });
 });
 
-app.get('/api/folders', (req, res) => {
-  const folders = readFolders();
-  const posts = readPosts();
-  const { search } = req.query;
-  let result = folders
-    .map(f => ({
+app.get('/api/folders', async (req, res) => {
+  try {
+    const { search } = req.query;
+    let filter = {};
+    if (search) {
+      const q = new RegExp(search, 'i');
+      filter = { $or: [{ name: q }, { description: q }] };
+    }
+    const folders = await Folder.find(filter).sort({ createdAt: -1 }).lean();
+    const result = await Promise.all(folders.map(async f => ({
       ...f,
-      postCount: posts.filter(p => p.folderId === f.id).length,
-    }))
-    .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
-  if (search) {
-    const q = search.toLowerCase();
-    result = result.filter(f =>
-      f.name.toLowerCase().includes(q) ||
-      (f.description && f.description.toLowerCase().includes(q))
-    );
-  }
-  res.json(result);
+      _id: undefined,
+      __v: undefined,
+      postCount: await Post.countDocuments({ folderId: f.id }),
+    })));
+    res.json(result);
+  } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-app.get('/api/folders/:id', (req, res) => {
-  const folders = readFolders();
-  const folder = folders.find(f => f.id === req.params.id || f.slug === req.params.id);
-  if (!folder) return res.status(404).json({ error: 'Folder not found' });
-  const posts = readPosts()
-    .filter(p => p.folderId === folder.id)
-    .map(({ content, ...rest }) => rest)
-    .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
-  res.json({ ...folder, posts });
+app.get('/api/folders/:id', async (req, res) => {
+  try {
+    const folder = await Folder.findOne({
+      $or: [{ id: req.params.id }, { slug: req.params.id }]
+    }).lean();
+    if (!folder) return res.status(404).json({ error: 'Folder not found' });
+    const posts = await Post.find({ folderId: folder.id })
+      .select('-content -__v -_id')
+      .sort({ createdAt: -1 })
+      .lean();
+    res.json({ ...folder, _id: undefined, __v: undefined, posts });
+  } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-app.post('/api/folders', requireAdmin, (req, res) => {
-  const { name, description } = req.body;
-  if (!name) return res.status(400).json({ error: 'Name required' });
-  const folders = readFolders();
-  const id = uuidv4();
-  const folder = {
-    id,
-    name: name.trim(),
-    slug: slugify(name) || id,
-    description: (description || '').trim(),
-    createdAt: new Date().toISOString(),
-  };
-  folders.push(folder);
-  writeFolders(folders);
-  res.status(201).json(folder);
+app.post('/api/folders', requireAdmin, async (req, res) => {
+  try {
+    const { name, description } = req.body;
+    if (!name) return res.status(400).json({ error: 'Name required' });
+    const id = uuidv4();
+    const folder = await Folder.create({
+      id,
+      name: name.trim(),
+      slug: slugify(name) || id,
+      description: (description || '').trim(),
+    });
+    res.status(201).json(folder.toObject({ versionKey: false }));
+  } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-app.put('/api/folders/:id', requireAdmin, (req, res) => {
-  const folders = readFolders();
-  const idx = folders.findIndex(f => f.id === req.params.id);
-  if (idx === -1) return res.status(404).json({ error: 'Not found' });
-  if (req.body.name) {
-    folders[idx].name = req.body.name.trim();
-    folders[idx].slug = slugify(req.body.name) || folders[idx].id;
-  }
-  if (req.body.description !== undefined) {
-    folders[idx].description = req.body.description.trim();
-  }
-  writeFolders(folders);
-  res.json(folders[idx]);
+app.put('/api/folders/:id', requireAdmin, async (req, res) => {
+  try {
+    const folder = await Folder.findOne({ id: req.params.id });
+    if (!folder) return res.status(404).json({ error: 'Not found' });
+    if (req.body.name) {
+      folder.name = req.body.name.trim();
+      folder.slug = slugify(req.body.name) || folder.id;
+    }
+    if (req.body.description !== undefined) {
+      folder.description = req.body.description.trim();
+    }
+    await folder.save();
+    res.json(folder.toObject({ versionKey: false }));
+  } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-app.delete('/api/folders/:id', requireAdmin, (req, res) => {
-  let folders = readFolders();
-  if (!folders.find(f => f.id === req.params.id)) {
-    return res.status(404).json({ error: 'Not found' });
-  }
-  let posts = readPosts();
-  posts = posts.filter(p => p.folderId !== req.params.id);
-  writePosts(posts);
-  folders = folders.filter(f => f.id !== req.params.id);
-  writeFolders(folders);
-  res.json({ ok: true });
+app.delete('/api/folders/:id', requireAdmin, async (req, res) => {
+  try {
+    const folder = await Folder.findOne({ id: req.params.id });
+    if (!folder) return res.status(404).json({ error: 'Not found' });
+    await Post.deleteMany({ folderId: req.params.id });
+    await Folder.deleteOne({ id: req.params.id });
+    res.json({ ok: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-app.get('/api/posts/:id', (req, res) => {
-  const posts = readPosts();
-  const post = posts.find(p => p.id === req.params.id || p.slug === req.params.id);
-  if (!post) return res.status(404).json({ error: 'Post not found' });
-  const folders = readFolders();
-  const folder = folders.find(f => f.id === post.folderId);
-  res.json({
-    ...post,
-    html: marked(post.content),
-    folderName: folder ? folder.name : null,
-    folderSlug: folder ? folder.slug : null,
-  });
+app.get('/api/posts/:id', async (req, res) => {
+  try {
+    const post = await Post.findOne({
+      $or: [{ id: req.params.id }, { slug: req.params.id }]
+    }).lean();
+    if (!post) return res.status(404).json({ error: 'Post not found' });
+    const folder = await Folder.findOne({ id: post.folderId }).lean();
+    res.json({
+      ...post,
+      _id: undefined,
+      __v: undefined,
+      html: marked(post.content),
+      folderName: folder ? folder.name : null,
+      folderSlug: folder ? folder.slug : null,
+    });
+  } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-app.post('/api/posts', requireAdmin, upload.single('markdown'), (req, res) => {
+app.post('/api/posts', requireAdmin, upload.single('markdown'), async (req, res) => {
   try {
     let md = '';
     let origName = '';
@@ -257,9 +270,8 @@ app.post('/api/posts', requireAdmin, upload.single('markdown'), (req, res) => {
     if (!req.body.folderId) return res.status(400).json({ error: 'Folder required' });
     const title = req.body.title || extractTitle(md) || origName.replace(/\.(md|markdown)$/, '') || 'Untitled';
     const tags = req.body.tags ? req.body.tags.split(',').map(t => t.trim()).filter(Boolean) : [];
-    const posts = readPosts();
     const id = uuidv4();
-    posts.push({
+    const post = await Post.create({
       id,
       folderId: req.body.folderId,
       slug: slugify(title) || id,
@@ -268,54 +280,52 @@ app.post('/api/posts', requireAdmin, upload.single('markdown'), (req, res) => {
       tags,
       content: md,
       readTime: readTime(md),
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
     });
-    writePosts(posts);
-    res.status(201).json({ id, title });
+    res.status(201).json({ id: post.id, title: post.title });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-app.put('/api/posts/:id', requireAdmin, upload.single('markdown'), (req, res) => {
+app.put('/api/posts/:id', requireAdmin, upload.single('markdown'), async (req, res) => {
   try {
-    const posts = readPosts();
-    const idx = posts.findIndex(p => p.id === req.params.id);
-    if (idx === -1) return res.status(404).json({ error: 'Not found' });
+    const post = await Post.findOne({ id: req.params.id });
+    if (!post) return res.status(404).json({ error: 'Not found' });
     if (req.file) {
-      posts[idx].content = fs.readFileSync(req.file.path, 'utf-8');
+      post.content = fs.readFileSync(req.file.path, 'utf-8');
     } else if (req.body.content) {
-      posts[idx].content = req.body.content;
+      post.content = req.body.content;
     }
-    if (req.body.title) posts[idx].title = req.body.title;
-    if (req.body.description !== undefined) posts[idx].description = req.body.description;
-    if (req.body.folderId) posts[idx].folderId = req.body.folderId;
+    if (req.body.title) post.title = req.body.title;
+    if (req.body.description !== undefined) post.description = req.body.description;
+    if (req.body.folderId) post.folderId = req.body.folderId;
     if (req.body.tags !== undefined) {
-      posts[idx].tags = req.body.tags.split(',').map(t => t.trim()).filter(Boolean);
+      post.tags = req.body.tags.split(',').map(t => t.trim()).filter(Boolean);
     }
-    posts[idx].readTime = readTime(posts[idx].content);
-    posts[idx].updatedAt = new Date().toISOString();
-    writePosts(posts);
+    post.readTime = readTime(post.content);
+    post.updatedAt = new Date();
+    await post.save();
     res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-app.delete('/api/posts/:id', requireAdmin, (req, res) => {
-  const posts = readPosts();
-  const filtered = posts.filter(p => p.id !== req.params.id);
-  if (filtered.length === posts.length) return res.status(404).json({ error: 'Not found' });
-  writePosts(filtered);
-  res.json({ ok: true });
+app.delete('/api/posts/:id', requireAdmin, async (req, res) => {
+  try {
+    const result = await Post.deleteOne({ id: req.params.id });
+    if (result.deletedCount === 0) return res.status(404).json({ error: 'Not found' });
+    res.json({ ok: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-app.get('/api/tags', (req, res) => {
-  const posts = readPosts();
-  const map = {};
-  posts.forEach(p => (p.tags || []).forEach(t => { map[t] = (map[t] || 0) + 1; }));
-  res.json(map);
+app.get('/api/tags', async (req, res) => {
+  try {
+    const posts = await Post.find({}, 'tags').lean();
+    const map = {};
+    posts.forEach(p => (p.tags || []).forEach(t => { map[t] = (map[t] || 0) + 1; }));
+    res.json(map);
+  } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 app.get('*', (req, res) => {
@@ -328,6 +338,15 @@ app.use((err, req, res, next) => {
   next();
 });
 
-app.listen(PORT, () => {
-  console.log(`\n  ✦ Blog running at http://localhost:${PORT}\n`);
-});
+// ── Connect MongoDB then start server ──
+mongoose.connect(MONGODB_URI)
+  .then(() => {
+    console.log('  ✦ Connected to MongoDB');
+    app.listen(PORT, () => {
+      console.log(`  ✦ Blog running at http://localhost:${PORT}\n`);
+    });
+  })
+  .catch(err => {
+    console.error('  ✖ MongoDB connection error:', err.message);
+    process.exit(1);
+  });
