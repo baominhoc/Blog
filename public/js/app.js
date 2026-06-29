@@ -2,10 +2,8 @@
   var saved = localStorage.getItem('theme');
   if (saved) {
     document.documentElement.setAttribute('data-theme', saved);
-  } else if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
-    document.documentElement.setAttribute('data-theme', 'dark');
   } else {
-    document.documentElement.setAttribute('data-theme', 'light');
+    document.documentElement.setAttribute('data-theme', 'dark');
   }
 })();
 
@@ -14,12 +12,13 @@ function toggleTheme() {
   var next = current === 'dark' ? 'light' : 'dark';
   document.documentElement.setAttribute('data-theme', next);
   localStorage.setItem('theme', next);
+  initSakura();
 }
 
 if (window.matchMedia) {
   window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', function(e) {
     if (!localStorage.getItem('theme')) {
-      document.documentElement.setAttribute('data-theme', e.matches ? 'dark' : 'light');
+      document.documentElement.setAttribute('data-theme', 'dark');
     }
   });
 }
@@ -30,6 +29,114 @@ var isAdmin = false;
 function $(sel) { return document.querySelector(sel); }
 function $$(sel) { return document.querySelectorAll(sel); }
 
+// Tune or disable the blossom background here. Counts, speed, size, opacity,
+// glow, and theme colors are intentionally centralized in this object.
+var SAKURA_CONFIG = {
+  enabled: true,
+  desktopCount: 42,
+  mobileCount: 18,
+  reducedMotionCount: 6,
+  minDuration: 26,
+  maxDuration: 52,
+  minOpacity: 0.12,
+  maxOpacity: 0.36,
+  minSize: 5,
+  maxSize: 14,
+  glowEvery: 4,
+  minGlow: 0.14,
+  maxGlow: 0.34,
+  colors: ['#f2bdca', '#df95a7', '#fff0f4', '#f7cad4'],
+  themes: {
+    light: {
+      minOpacity: 0.22,
+      maxOpacity: 0.48,
+      minGlow: 0.18,
+      maxGlow: 0.42,
+      minSize: 6,
+      maxSize: 15,
+      colors: ['#d47b92', '#e8a6b6', '#f4c8d2', '#c7657f', '#fff0f4']
+    },
+    dark: {
+      minOpacity: 0.14,
+      maxOpacity: 0.38,
+      minGlow: 0.18,
+      maxGlow: 0.42,
+      colors: ['#f5bdca', '#e7a1b2', '#fff0f4', '#d98ca0']
+    }
+  }
+};
+
+var iconPaths = {
+  plus: '<path d="M12 5v14M5 12h14"/>',
+  lock: '<rect x="4" y="10" width="16" height="10" rx="2"/><path d="M8 10V7a4 4 0 018 0v3"/>',
+  edit: '<path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 013 3L7 19l-4 1 1-4 12.5-12.5z"/>',
+  file: '<path d="M14 2H7a2 2 0 00-2 2v16a2 2 0 002 2h10a2 2 0 002-2V7z"/><path d="M14 2v5h5"/><path d="M9 13h6M9 17h4"/>',
+  trash: '<path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v5M14 11v5"/>',
+  menu: '<path d="M4 7h16M4 12h16M4 17h16"/>',
+  back: '<path d="M15 18l-6-6 6-6"/><path d="M9 12h12"/>'
+};
+
+function uiIcon(name) {
+  return '<svg class="ui-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + iconPaths[name] + '</svg>';
+}
+
+function loadingMarkup(label) {
+  return '<div class="loading">' +
+    '<div class="spinner" aria-hidden="true"></div>' +
+    '<p>' + escapeHtml(label || 'Loading') + '</p>' +
+  '</div>';
+}
+
+function randomBetween(min, max) {
+  return min + Math.random() * (max - min);
+}
+
+function sakuraThemeOptions() {
+  var theme = document.documentElement.getAttribute('data-theme') === 'light' ? 'light' : 'dark';
+  return SAKURA_CONFIG.themes[theme] || {};
+}
+
+function sakuraValue(themeOptions, key) {
+  return typeof themeOptions[key] === 'number' ? themeOptions[key] : SAKURA_CONFIG[key];
+}
+
+function initSakura() {
+  var field = $('#sakuraField');
+  if (!field || !SAKURA_CONFIG.enabled) {
+    if (field) field.hidden = true;
+    return;
+  }
+  var reduceMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  var isMobile = window.matchMedia && window.matchMedia('(max-width: 768px)').matches;
+  var count = reduceMotion
+    ? SAKURA_CONFIG.reducedMotionCount
+    : (isMobile ? SAKURA_CONFIG.mobileCount : SAKURA_CONFIG.desktopCount);
+  field.innerHTML = '';
+  field.hidden = false;
+  var themeOptions = sakuraThemeOptions();
+  var colors = themeOptions.colors || SAKURA_CONFIG.colors;
+  for (var i = 0; i < count; i++) {
+    var petal = document.createElement('span');
+    var size = randomBetween(sakuraValue(themeOptions, 'minSize'), sakuraValue(themeOptions, 'maxSize'));
+    var duration = randomBetween(SAKURA_CONFIG.minDuration, SAKURA_CONFIG.maxDuration);
+    var opacity = randomBetween(sakuraValue(themeOptions, 'minOpacity'), sakuraValue(themeOptions, 'maxOpacity'));
+    var glow = randomBetween(sakuraValue(themeOptions, 'minGlow'), sakuraValue(themeOptions, 'maxGlow'));
+    var color = colors[i % colors.length];
+    petal.className = 'sakura-petal sakura-petal-' + (i % 4) + (i % SAKURA_CONFIG.glowEvery === 0 ? ' sakura-petal-glow' : '');
+    petal.style.setProperty('--petal-x', randomBetween(-4, 104).toFixed(2) + 'vw');
+    petal.style.setProperty('--petal-y', randomBetween(-18, 16).toFixed(2) + 'vh');
+    petal.style.setProperty('--petal-drift', randomBetween(-9, 9).toFixed(2) + 'vw');
+    petal.style.setProperty('--petal-size', size.toFixed(2) + 'px');
+    petal.style.setProperty('--petal-opacity', opacity.toFixed(2));
+    petal.style.setProperty('--petal-glow', glow.toFixed(2));
+    petal.style.setProperty('--petal-rotation', randomBetween(-80, 80).toFixed(2) + 'deg');
+    petal.style.setProperty('--petal-duration', duration.toFixed(2) + 's');
+    petal.style.setProperty('--petal-delay', (-duration * Math.random()).toFixed(2) + 's');
+    petal.style.setProperty('--petal-tint', color);
+    field.appendChild(petal);
+  }
+}
+
 function toast(msg, type) {
   type = type || 'success';
   var container = $('#toastContainer');
@@ -39,7 +146,7 @@ function toast(msg, type) {
   container.appendChild(el);
   setTimeout(function() {
     el.style.opacity = '0';
-    el.style.transition = 'opacity 0.3s';
+    el.style.transition = 'opacity 300ms cubic-bezier(0.32, 0.72, 0, 1)';
     setTimeout(function() { el.remove(); }, 300);
   }, 3000);
 }
@@ -107,14 +214,7 @@ function initScrollSpy() {
       seen[target] = true;
     }
   }
-  function onScroll() {
-    var scrollY = window.scrollY + 120;
-    var current = null;
-    for (var j = 0; j < headingEls.length; j++) {
-      if (headingEls[j].el.offsetTop <= scrollY) {
-        current = headingEls[j].target;
-      }
-    }
+  function setActive(current) {
     for (var k = 0; k < links.length; k++) {
       if (links[k].getAttribute('data-target') === current) {
         links[k].classList.add('active');
@@ -123,10 +223,19 @@ function initScrollSpy() {
       }
     }
   }
-  window.addEventListener('scroll', onScroll, { passive: true });
-  onScroll();
+  if (!('IntersectionObserver' in window)) {
+    if (headingEls[0]) setActive(headingEls[0].target);
+    return;
+  }
+  var observer = new IntersectionObserver(function(entries) {
+    var visible = entries
+      .filter(function(entry) { return entry.isIntersecting; })
+      .sort(function(a, b) { return a.boundingClientRect.top - b.boundingClientRect.top; });
+    if (visible[0]) setActive(visible[0].target.id);
+  }, { rootMargin: '-18% 0px -68% 0px', threshold: 0.01 });
+  headingEls.forEach(function(item) { observer.observe(item.el); });
   scrollSpyCleanup = function() {
-    window.removeEventListener('scroll', onScroll);
+    observer.disconnect();
   };
 }
 
@@ -149,6 +258,71 @@ function setupTOCLinks() {
       }
     });
   }
+}
+
+function initReveals(root) {
+  var scope = root || document;
+  var items = scope.querySelectorAll('.reveal-in:not(.is-visible)');
+  if (!items.length) return;
+  if (!('IntersectionObserver' in window)) {
+    items.forEach(function(item) { item.classList.add('is-visible'); });
+    return;
+  }
+  var observer = new IntersectionObserver(function(entries, obs) {
+    entries.forEach(function(entry) {
+      if (entry.isIntersecting) {
+        entry.target.classList.add('is-visible');
+        obs.unobserve(entry.target);
+      }
+    });
+  }, { threshold: 0.12, rootMargin: '0px 0px -8% 0px' });
+  items.forEach(function(item) { observer.observe(item); });
+}
+
+function getCodeLanguage(code) {
+  var className = code ? code.className : '';
+  var match = className.match(/language-([a-z0-9_+-]+)/i);
+  return match ? match[1].replace(/_/g, '-') : 'code';
+}
+
+function copyCodeText(text, done) {
+  if (navigator.clipboard && window.isSecureContext) {
+    navigator.clipboard.writeText(text).then(done).catch(function() {});
+    return;
+  }
+  var textarea = document.createElement('textarea');
+  textarea.value = text;
+  textarea.setAttribute('readonly', '');
+  textarea.style.position = 'fixed';
+  textarea.style.left = '-9999px';
+  document.body.appendChild(textarea);
+  textarea.select();
+  try { document.execCommand('copy'); done(); } catch (err) {}
+  textarea.remove();
+}
+
+function enhanceCodeBlocks(root) {
+  if (!root) return;
+  root.querySelectorAll('pre').forEach(function(pre) {
+    if (pre.classList.contains('code-enhanced')) return;
+    var code = pre.querySelector('code');
+    if (!code) return;
+    pre.classList.add('code-enhanced');
+    pre.setAttribute('data-lang', getCodeLanguage(code));
+    var btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'code-copy';
+    btn.textContent = 'Copy';
+    btn.setAttribute('aria-label', 'Copy code');
+    btn.addEventListener('click', function(e) {
+      e.stopPropagation();
+      copyCodeText(code.innerText, function() {
+        btn.textContent = 'Copied';
+        setTimeout(function() { btn.textContent = 'Copy'; }, 1400);
+      });
+    });
+    pre.appendChild(btn);
+  });
 }
 
 var api = {
@@ -248,12 +422,16 @@ var router = {
     if (scrollSpyCleanup) { scrollSpyCleanup(); scrollSpyCleanup = null; }
     var route = this.getRoute();
     if (route === '/' || route === '') {
+      document.body.setAttribute('data-route', 'home');
       renderHome();
     } else if (route.indexOf('/folder/') === 0) {
+      document.body.setAttribute('data-route', 'folder');
       renderFolder(route.slice(8));
     } else if (route.indexOf('/post/') === 0) {
+      document.body.setAttribute('data-route', 'post');
       renderPost(route.slice(6));
     } else {
+      document.body.setAttribute('data-route', 'not-found');
       renderNotFound();
     }
   }
@@ -263,12 +441,12 @@ function updateHeaderActions() {
   var el = $('#headerActions');
   if (isAdmin) {
     el.innerHTML =
-      '<span class="admin-indicator">✦ Admin</span>' +
+      '<span class="admin-indicator">Admin mode</span>' +
       '<button class="btn btn-ghost btn-sm" onclick="handleLogout()">Logout</button>';
   } else {
     el.innerHTML =
       '<button class="btn-icon" onclick="openLoginModal()" title="Admin">' +
-        '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0110 0v4"/></svg>' +
+        uiIcon('lock') +
       '</button>';
   }
 }
@@ -276,15 +454,38 @@ function updateHeaderActions() {
 function renderHome() {
   var app = $('#app');
   app.innerHTML =
-    '<div class="page-title">Writeups & Research</div>' +
-    '<p class="page-subtitle">CTF writeups and research articles</p>' +
-    '<div class="filter-bar">' +
-      '<input class="search-input" type="text" id="searchInput" placeholder="Search folders..." oninput="debounceSearchFolders(this.value)">' +
-      (isAdmin ? '<button class="btn btn-primary" onclick="openNewFolderModal()"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg> <span class="hide-mobile">New Folder</span></button>' : '') +
-    '</div>' +
-    '<div class="folders-grid" id="foldersGrid">' +
-      '<div class="loading"><div class="spinner"></div><p>Loading...</p></div>' +
-    '</div>';
+    '<section class="home-hero surface-shell surface-shell-hero reveal-in" aria-labelledby="homeTitle">' +
+      '<div class="surface-core hero-core">' +
+        '<div class="hero-copy">' +
+          '<div class="kicker">security notebook / spring archive</div>' +
+          '<h1 id="homeTitle">Ahrial research log</h1>' +
+          '<p>CTF notes, exploit analysis, and web security writeups. And my POV with CTF.</p>' +
+        '</div>' +
+        '<div class="hero-mini-panel" aria-hidden="true">' +
+          '<span>Age : 19</span>' +
+          '<strong>Ahrial / Kanial</strong>' +
+          '<em>ridiculous - serious</em>' +
+        '</div>' +
+      '</div>' +
+    '</section>' +
+    '<section class="index-panel surface-shell reveal-in reveal-delay-1" aria-label="Research index">' +
+      '<div class="surface-core index-core">' +
+        '<div class="section-header index-header">' +
+          '<div>' +
+            '<div class="page-title">Research index</div>' +
+            '<p class="page-subtitle">Browse by event, lab, or investigation thread.</p>' +
+          '</div>' +
+          (isAdmin ? '<button class="btn btn-primary" onclick="openNewFolderModal()">' + uiIcon('plus') + '<span class="hide-mobile">New Folder</span></button>' : '') +
+        '</div>' +
+        '<div class="filter-bar">' +
+          '<input class="search-input" type="text" id="searchInput" placeholder="Search the archive..." oninput="debounceSearchFolders(this.value)">' +
+        '</div>' +
+        '<div class="folders-grid" id="foldersGrid">' +
+          loadingMarkup('Syncing archive') +
+        '</div>' +
+      '</div>' +
+    '</section>';
+  initReveals(app);
   loadFolders();
 }
 
@@ -296,33 +497,37 @@ function loadFolders(search) {
   api.getFolders(params).then(function(folders) {
     if (folders.length === 0) {
       grid.innerHTML =
-        '<div class="empty-state" style="grid-column:1/-1">' +
+        '<div class="empty-state empty-state-wide">' +
           '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"/></svg>' +
-          '<h3>' + (search ? 'No matching folders' : 'No folders yet') + '</h3>' +
-          '<p>' + (search ? 'Try a different search' : (isAdmin ? 'Create your first CTF folder' : '')) + '</p>' +
+          '<h3>' + (search ? 'No matching logs' : 'No research logs yet') + '</h3>' +
+          '<p>' + (search ? 'Try a different search term.' : (isAdmin ? 'Create the first research folder.' : 'The archive is empty for now.')) + '</p>' +
         '</div>';
       return;
     }
     grid.innerHTML = folders.map(function(f) {
       var adminBtns = isAdmin
         ? '<div class="folder-card-actions">' +
-            '<button class="btn-icon btn-sm" onclick="event.stopPropagation(); openEditFolderModal(\'' + f.id + '\', \'' + escapeHtml(f.name).replace(/'/g, "\\'") + '\', \'' + escapeHtml(f.description || '').replace(/'/g, "\\'") + '\')" title="Edit">✏️</button>' +
-            '<button class="btn-icon btn-sm" onclick="event.stopPropagation(); confirmDeleteFolder(\'' + f.id + '\', \'' + escapeHtml(f.name).replace(/'/g, "\\'") + '\')" title="Delete">🗑️</button>' +
+            '<button class="btn-icon btn-sm" onclick="event.stopPropagation(); openEditFolderModal(\'' + f.id + '\', \'' + escapeHtml(f.name).replace(/'/g, "\\'") + '\', \'' + escapeHtml(f.description || '').replace(/'/g, "\\'") + '\')" title="Edit">' + uiIcon('edit') + '</button>' +
+            '<button class="btn-icon btn-sm" onclick="event.stopPropagation(); confirmDeleteFolder(\'' + f.id + '\', \'' + escapeHtml(f.name).replace(/'/g, "\\'") + '\')" title="Delete">' + uiIcon('trash') + '</button>' +
           '</div>'
         : '';
-      return '<div class="folder-card" onclick="router.navigate(\'/folder/' + (f.slug || f.id) + '\')">' +
+      return '<div class="folder-card card-shell" onclick="router.navigate(\'/folder/' + (f.slug || f.id) + '\')">' +
         adminBtns +
-        '<div class="folder-card-icon">📁</div>' +
-        '<div class="folder-card-name">' + escapeHtml(f.name) + '</div>' +
-        (f.description ? '<div class="folder-card-desc">' + escapeHtml(f.description) + '</div>' : '') +
-        '<div class="folder-card-meta">' +
-          '<span class="folder-card-count">' + f.postCount + ' writeup' + (f.postCount !== 1 ? 's' : '') + '</span>' +
-          '<span>' + formatDate(f.createdAt) + '</span>' +
+        '<div class="card-core folder-card-core">' +
+          '<div class="folder-card-top">' +
+            '<div class="folder-card-icon" aria-hidden="true"><span></span></div>' +
+            '<span class="folder-card-count">' + f.postCount + ' writeup' + (f.postCount !== 1 ? 's' : '') + '</span>' +
+          '</div>' +
+          '<div class="folder-card-name">' + escapeHtml(f.name) + '</div>' +
+          (f.description ? '<div class="folder-card-desc">' + escapeHtml(f.description) + '</div>' : '') +
+          '<div class="folder-card-meta">' +
+            '<span>Opened ' + formatDate(f.createdAt) + '</span>' +
+          '</div>' +
         '</div>' +
       '</div>';
     }).join('');
   }).catch(function(err) {
-    grid.innerHTML = '<div class="empty-state" style="grid-column:1/-1"><h3>Error</h3><p>' + escapeHtml(err.message) + '</p></div>';
+    grid.innerHTML = '<div class="empty-state empty-state-wide"><h3>Archive unavailable</h3><p>' + escapeHtml(err.message) + '</p></div>';
   });
 }
 
@@ -334,48 +539,53 @@ function debounceSearchFolders(val) {
 
 function renderFolder(slug) {
   var app = $('#app');
-  app.innerHTML = '<div class="loading"><div class="spinner"></div><p>Loading...</p></div>';
+  app.innerHTML = loadingMarkup('Opening log');
   api.getFolder(slug).then(function(data) {
     var adminBtn = isAdmin
       ? '<button class="btn btn-primary btn-sm" onclick="openNewPostModal(\'' + data.id + '\')">' +
-          '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg> New Post</button>'
+          uiIcon('plus') + 'New Post</button>'
       : '';
     app.innerHTML =
-      '<div class="back-link" onclick="router.navigate(\'/\')">← Back to folders</div>' +
-      '<div class="section-header">' +
-        '<div><div class="page-title">' + escapeHtml(data.name) + '</div>' +
-        (data.description ? '<p class="page-subtitle" style="margin-bottom:0">' + escapeHtml(data.description) + '</p>' : '') +
+      '<button class="back-link" onclick="router.navigate(\'/\')">' + uiIcon('back') + 'Back to index</button>' +
+      '<section class="folder-header surface-shell reveal-in">' +
+        '<div class="surface-core folder-header-core">' +
+          '<div><div class="kicker">folder / field notes</div><div class="page-title">' + escapeHtml(data.name) + '</div>' +
+          (data.description ? '<p class="page-subtitle folder-description">' + escapeHtml(data.description) + '</p>' : '') +
+          '</div>' +
+          adminBtn +
         '</div>' +
-        adminBtn +
-      '</div>' +
+      '</section>' +
       '<div class="posts-grid" id="postsGrid"></div>';
+    initReveals(app);
     var grid = $('#postsGrid');
     if (!data.posts || data.posts.length === 0) {
       grid.innerHTML =
         '<div class="empty-state">' +
           '<h3>No writeups yet</h3>' +
-          '<p>' + (isAdmin ? 'Add your first writeup to this folder' : '') + '</p>' +
+          '<p>' + (isAdmin ? 'Add the first writeup to this log.' : 'This log has no published notes yet.') + '</p>' +
         '</div>';
       return;
     }
     grid.innerHTML = data.posts.map(function(post) {
-      return '<div class="post-card" onclick="router.navigate(\'/post/' + (post.slug || post.id) + '\')">' +
-        '<div class="post-card-title">' + escapeHtml(post.title) + '</div>' +
-        (post.description ? '<div class="post-card-desc">' + escapeHtml(post.description) + '</div>' : '') +
-        '<div class="post-card-meta">' +
-          '<span>' + formatDate(post.createdAt) + '</span>' +
-          '<span>·</span>' +
-          '<span>' + post.readTime + ' min read</span>' +
+      return '<div class="post-card card-shell" onclick="router.navigate(\'/post/' + (post.slug || post.id) + '\')">' +
+        '<div class="card-core post-card-core">' +
+          '<div class="post-card-kicker">writeup</div>' +
+          '<div class="post-card-title">' + escapeHtml(post.title) + '</div>' +
+          (post.description ? '<div class="post-card-desc">' + escapeHtml(post.description) + '</div>' : '') +
+          '<div class="post-card-meta">' +
+            '<span>' + formatDate(post.createdAt) + '</span>' +
+            '<span>' + post.readTime + ' min read</span>' +
+          '</div>' +
+          (post.tags && post.tags.length > 0
+            ? '<div class="post-card-tags">' + post.tags.map(function(t) { return '<span class="tag">' + escapeHtml(t) + '</span>'; }).join('') + '</div>'
+            : '') +
         '</div>' +
-        (post.tags && post.tags.length > 0
-          ? '<div class="post-card-tags">' + post.tags.map(function(t) { return '<span class="tag">' + escapeHtml(t) + '</span>'; }).join('') + '</div>'
-          : '') +
       '</div>';
     }).join('');
   }).catch(function(err) {
     app.innerHTML =
       '<div class="empty-state"><h3>Folder not found</h3><p>' + escapeHtml(err.message) + '</p><br>' +
-      '<button class="btn btn-primary" onclick="router.navigate(\'/\')">← Go Home</button></div>';
+      '<button class="btn btn-primary" onclick="router.navigate(\'/\')">' + uiIcon('back') + 'Go home</button></div>';
   });
 }
 
@@ -383,52 +593,58 @@ function renderPost(id) {
   var app = $('#app');
   var mainContent = document.querySelector('.main-content');
   if (mainContent) mainContent.classList.add('wide');
-  app.innerHTML = '<div class="loading"><div class="spinner"></div><p>Loading...</p></div>';
+  app.innerHTML = loadingMarkup('Loading article');
   api.getPost(id).then(function(post) {
     var adminActions = isAdmin
       ? '<div class="post-actions">' +
-          '<button class="btn btn-ghost btn-sm" onclick="openEditPostMeta(\'' + post.id + '\')">✏️ Edit</button>' +
-          '<button class="btn btn-ghost btn-sm" onclick="openEditContentModal(\'' + post.id + '\')">📝 Edit Content</button>' +
-          '<button class="btn btn-danger btn-sm" onclick="confirmDeletePost(\'' + post.id + '\')">🗑️ Delete</button>' +
+          '<button class="btn btn-ghost btn-sm" onclick="openEditPostMeta(\'' + post.id + '\')">' + uiIcon('edit') + 'Edit</button>' +
+          '<button class="btn btn-ghost btn-sm" onclick="openEditContentModal(\'' + post.id + '\')">' + uiIcon('file') + 'Edit Content</button>' +
+          '<button class="btn btn-danger btn-sm" onclick="confirmDeletePost(\'' + post.id + '\')">' + uiIcon('trash') + 'Delete</button>' +
         '</div>'
       : '';
     var backTarget = post.folderSlug ? '/folder/' + post.folderSlug : '/';
     app.innerHTML =
-      '<div class="post-header">' +
-        '<div class="breadcrumb">' +
-          '<a onclick="router.navigate(\'/\')">Home</a>' +
-          (post.folderName
-            ? '<span class="sep">›</span><a onclick="router.navigate(\'' + backTarget + '\')">' + escapeHtml(post.folderName) + '</a>'
-            : '') +
+      '<div class="post-page-grid">' +
+        '<div class="post-header surface-shell reveal-in">' +
+          '<div class="surface-core post-header-core">' +
+            '<div class="breadcrumb">' +
+              '<a onclick="router.navigate(\'/\')">Home</a>' +
+              (post.folderName
+                ? '<span class="sep">›</span><a onclick="router.navigate(\'' + backTarget + '\')">' + escapeHtml(post.folderName) + '</a>'
+                : '') +
+            '</div>' +
+            '<div class="kicker">research note</div>' +
+            '<h1 class="post-title">' + escapeHtml(post.title) + '</h1>' +
+            '<div class="post-meta">' +
+              '<span>' + formatDate(post.createdAt) + '</span>' +
+              '<span>' + post.readTime + ' min read</span>' +
+              (post.updatedAt !== post.createdAt ? '<span>Updated ' + formatDate(post.updatedAt) + '</span>' : '') +
+            '</div>' +
+            (post.tags && post.tags.length > 0
+              ? '<div class="post-tags">' + post.tags.map(function(t) { return '<span class="tag">' + escapeHtml(t) + '</span>'; }).join('') + '</div>'
+              : '') +
+            adminActions +
+          '</div>' +
         '</div>' +
-        '<h1 class="post-title">' + escapeHtml(post.title) + '</h1>' +
-        '<div class="post-meta">' +
-          '<span>' + formatDate(post.createdAt) + '</span>' +
-          '<span>·</span>' +
-          '<span>' + post.readTime + ' min read</span>' +
-          (post.updatedAt !== post.createdAt ? '<span>·</span><span>Updated ' + formatDate(post.updatedAt) + '</span>' : '') +
-        '</div>' +
-        (post.tags && post.tags.length > 0
-          ? '<div class="post-tags">' + post.tags.map(function(t) { return '<span class="tag">' + escapeHtml(t) + '</span>'; }).join('') + '</div>'
-          : '') +
-        adminActions +
-      '</div>' +
-      '<button class="toc-mobile-toggle" id="tocMobileToggle" onclick="toggleMobileTOC()" style="display:none">' +
-        '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 12h18M3 6h18M3 18h18"/></svg> Sections' +
-      '</button>' +
-      '<div class="toc-mobile" id="tocMobile"></div>' +
-      '<div class="post-layout">' +
+        '<button class="toc-mobile-toggle" id="tocMobileToggle" onclick="toggleMobileTOC()" hidden>' +
+          uiIcon('menu') + 'Sections' +
+        '</button>' +
+        '<div class="toc-mobile" id="tocMobile"></div>' +
         '<aside class="toc-sidebar" id="tocSidebar"></aside>' +
-        '<div class="post-content">' +
-          '<div class="markdown-body">' + post.html + '</div>' +
-        '</div>' +
+        '<article class="post-content article-shell surface-shell reveal-in reveal-delay-1" aria-label="Article">' +
+          '<div class="surface-core article-core">' +
+            '<div class="markdown-body">' + post.html + '</div>' +
+          '</div>' +
+        '</article>' +
       '</div>';
+    initReveals(app);
     if (window.hljs) {
       app.querySelectorAll('pre code').forEach(function(block) {
         hljs.highlightElement(block);
       });
     }
     var markdownBody = app.querySelector('.markdown-body');
+    enhanceCodeBlocks(markdownBody);
     var tocItems = buildTOC(markdownBody);
     if (tocItems && tocItems.length >= 2) {
       var tocHtml = renderTOCHtml(tocItems);
@@ -437,35 +653,42 @@ function renderPost(id) {
       var tocMobileToggle = document.querySelector('#tocMobileToggle');
       if (tocSidebar) tocSidebar.innerHTML = '<div class="toc-inner">' + tocHtml + '</div>';
       if (tocMobile) tocMobile.innerHTML = tocHtml;
-      if (tocMobileToggle) tocMobileToggle.style.display = '';
+      if (tocMobileToggle) tocMobileToggle.hidden = false;
       setupTOCLinks();
       initScrollSpy();
     } else {
       var tocSidebarEl = document.querySelector('#tocSidebar');
-      if (tocSidebarEl) tocSidebarEl.style.display = 'none';
+      if (tocSidebarEl) tocSidebarEl.hidden = true;
+      var postPageGrid = document.querySelector('.post-page-grid');
+      if (postPageGrid) postPageGrid.classList.add('post-page-grid-no-toc');
     }
   }).catch(function(err) {
     app.innerHTML =
       '<div class="empty-state"><h3>Post not found</h3><p>' + escapeHtml(err.message) + '</p><br>' +
-      '<button class="btn btn-primary" onclick="router.navigate(\'/\')">← Go Home</button></div>';
+      '<button class="btn btn-primary" onclick="router.navigate(\'/\')">' + uiIcon('back') + 'Go home</button></div>';
   });
 }
 
 function renderNotFound() {
   $('#app').innerHTML =
     '<div class="empty-state"><h3>Page not found</h3><p>The page you are looking for does not exist.</p><br>' +
-    '<button class="btn btn-primary" onclick="router.navigate(\'/\')">← Go Home</button></div>';
+    '<button class="btn btn-primary" onclick="router.navigate(\'/\')">' + uiIcon('back') + 'Go home</button></div>';
 }
 
 function openLoginModal() {
   $('#loginForm').reset();
   var w = $('#turnstileWidget');
   if (CF_SITE_KEY && w) {
+    w.classList.add('cf-turnstile');
     w.setAttribute('data-sitekey', CF_SITE_KEY);
     w.innerHTML = '';
     if (window.turnstile) {
       window.turnstile.render('#turnstileWidget', { sitekey: CF_SITE_KEY });
     }
+  } else if (w) {
+    w.classList.remove('cf-turnstile');
+    w.removeAttribute('data-sitekey');
+    w.innerHTML = '';
   }
   $('#loginModal').classList.add('active');
 }
@@ -483,7 +706,7 @@ function handleLogin(e) {
   if (turnstileInput) cfToken = turnstileInput.value;
   var btn = $('#loginBtn');
   btn.disabled = true;
-  btn.textContent = 'Logging in...';
+  btn.textContent = 'Checking access...';
   api.login(user, pass, cfToken).then(function() {
     isAdmin = true;
     closeLoginModal();
@@ -570,8 +793,8 @@ function openNewPostModal(folderId) {
   $('#fileName').textContent = '';
   $('#postModalTitle').textContent = 'New Post';
   $('#postSubmitBtn').textContent = 'Publish';
-  $('#fileUploadGroup').style.display = '';
-  $('#editorGroup').style.display = 'none';
+  $('#fileUploadGroup').hidden = false;
+  $('#editorGroup').hidden = true;
   $$('#postModal .tab-bar button').forEach(function(b, i) { b.classList.toggle('active', i === 0); });
   $('#postModal').classList.add('active');
 }
@@ -584,17 +807,17 @@ function openEditPostMeta(postId) {
     $('#descInput').value = post.description || '';
     $('#tagsInput').value = (post.tags || []).join(', ');
     $('#postModalTitle').textContent = 'Edit Post';
-    $('#postSubmitBtn').textContent = 'Save Changes';
-    $('#fileUploadGroup').style.display = 'none';
-    $('#editorGroup').style.display = 'none';
-    $$('#postModal .tab-bar').forEach(function(el) { el.style.display = 'none'; });
+    $('#postSubmitBtn').textContent = 'Save changes';
+    $('#fileUploadGroup').hidden = true;
+    $('#editorGroup').hidden = true;
+    $$('#postModal .tab-bar').forEach(function(el) { el.hidden = true; });
     $('#postModal').classList.add('active');
   }).catch(function(err) { toast(err.message, 'error'); });
 }
 
 function closePostModal() {
   $('#postModal').classList.remove('active');
-  $$('#postModal .tab-bar').forEach(function(el) { el.style.display = ''; });
+  $$('#postModal .tab-bar').forEach(function(el) { el.hidden = false; });
 }
 
 function switchTab(btn, tab) {
@@ -602,11 +825,11 @@ function switchTab(btn, tab) {
   btn.classList.add('active');
   activeTab = tab;
   if (tab === 'upload') {
-    $('#fileUploadGroup').style.display = '';
-    $('#editorGroup').style.display = 'none';
+    $('#fileUploadGroup').hidden = false;
+    $('#editorGroup').hidden = true;
   } else {
-    $('#fileUploadGroup').style.display = 'none';
-    $('#editorGroup').style.display = '';
+    $('#fileUploadGroup').hidden = true;
+    $('#editorGroup').hidden = false;
   }
 }
 
@@ -617,7 +840,7 @@ function handleFileSelect(file) {
     return;
   }
   selectedFile = file;
-  $('#fileName').textContent = '📎 ' + file.name;
+  $('#fileName').textContent = 'Attached: ' + file.name;
 }
 
 function handlePostSubmit(e) {
@@ -655,7 +878,7 @@ function handlePostSubmit(e) {
     toast(err.message, 'error');
   }).finally(function() {
     btn.disabled = false;
-    btn.textContent = editId ? 'Save Changes' : 'Publish';
+    btn.textContent = editId ? 'Save changes' : 'Publish';
   });
 }
 
@@ -700,6 +923,7 @@ function confirmDeletePost(postId) {
 }
 
 document.addEventListener('DOMContentLoaded', function() {
+  initSakura();
   var dropZone = $('#dropZone');
   var fileInput = $('#fileInput');
   if (dropZone) {
@@ -722,6 +946,12 @@ document.addEventListener('DOMContentLoaded', function() {
       if (e.target.files[0]) handleFileSelect(e.target.files[0]);
     });
   }
+});
+
+var sakuraResizeTimer = null;
+window.addEventListener('resize', function() {
+  clearTimeout(sakuraResizeTimer);
+  sakuraResizeTimer = setTimeout(initSakura, 250);
 });
 
 document.addEventListener('click', function(e) {
