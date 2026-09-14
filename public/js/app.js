@@ -631,7 +631,7 @@ function renderPost(id) {
         '</button>' +
         '<div class="toc-mobile" id="tocMobile"></div>' +
         '<aside class="toc-sidebar" id="tocSidebar"></aside>' +
-        '<article class="post-content article-shell surface-shell reveal-in reveal-delay-1" aria-label="Article">' +
+        '<article class="post-content article-shell surface-shell" aria-label="Article">' +
           '<div class="surface-core article-core">' +
             '<div class="markdown-body">' + post.html + '</div>' +
           '</div>' +
